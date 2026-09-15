@@ -15,6 +15,8 @@
 - Added exhausted-cap boundary checks (including zero-elapsed exhausted-cap release path).
 - Replaced brittle storage-slot assumptions with `stdstore` setter for `totalEmitted`.
 - Added `test/DeploymentFactory.t.sol` for deterministic deployment prediction/wiring assertions and duplicate-salt deployment revert.
+- Added final-audit deployment checks for nonce-order address prediction, one-shot `ImmutableProtocolDeployer`, no post-deployment token mint path, and no admin/setter surfaces on factory/deployer.
+- Added explicit full lifecycle single-token flow test covering custody -> pendingReward -> claimAndRelease -> payout -> state clear.
 
 ## CI changes
 - Added GitHub Actions workflow: `.github/workflows/ci.yml`

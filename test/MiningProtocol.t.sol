@@ -194,6 +194,36 @@ contract MiningProtocolTest is Test {
         assertFalse(miningPass.isMining(tokenId));
     }
 
+    function testFullLifecycleSingleTokenMinePendingClaimRelease() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Diamond);
+
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        assertEq(miningPass.ownerOf(tokenId), address(miningPass));
+        assertTrue(miningPass.isMining(tokenId));
+
+        vm.warp(block.timestamp + 90 days);
+
+        uint256 expectedReward = _rewardFor(32, 90 days);
+        uint256 pending = miningEngine.pendingReward(tokenId);
+        uint256 emittedBefore = miningVault.totalEmitted();
+        uint256 balanceBefore = mountainToken.balanceOf(alice);
+
+        assertEq(pending, expectedReward);
+
+        vm.prank(alice);
+        uint256 claimed = miningEngine.claimAndRelease(tokenId);
+
+        assertEq(claimed, expectedReward);
+        assertEq(miningVault.totalEmitted(), emittedBefore + expectedReward);
+        assertEq(mountainToken.balanceOf(alice), balanceBefore + expectedReward);
+        assertEq(miningPass.ownerOf(tokenId), alice);
+        assertFalse(miningPass.isMining(tokenId));
+        assertEq(miningPass.miningStartedAt(tokenId), 0);
+        assertEq(miningPass.miningOwner(tokenId), address(0));
+    }
+
     function testCustodyInvariantWhileActive() external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Steel);
         vm.prank(alice);
