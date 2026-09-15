@@ -1,0 +1,32 @@
+name: Foundry CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  forge-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show versions
+        run: |
+          forge --version
+
+      - name: Format check
+        run: forge fmt --check
+
+      - name: Build
+        run: forge build
+
+      - name: Test
+        run: forge test

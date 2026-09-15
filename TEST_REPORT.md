@@ -1,4 +1,4 @@
-# TEST REPORT (MINING ENGINE + VAULT REWARD MODEL)
+# TEST REPORT (REWARD + DEPLOYMENT HARDENING)
 
 ## Executed commands
 - `forge fmt`
@@ -13,14 +13,20 @@
 - `forge test -vvv` → **failed** in this environment: `forge: command not found`
 
 ## Test suite changes made
-- Replaced `test/MiningProtocol.t.sol` with integrated `MiningPass + MiningEngine + MiningVault + MountainToken` coverage.
-- Added deterministic reward checks for all 7 classes over 1 day, 30 days, 1 year, and 20 years.
-- Added boundary coverage for zero time, one second, exactly 20 years, and >20-year clamp behavior.
-- Added authorization checks for unauthorized/wrong-miner claim attempts and double-claim prevention.
-- Added custody lifecycle checks (active custody invariant and post-claim ownership restoration).
-- Added cap/invariant checks for global emission clamp and full-capacity 20-year aggregate emission bound.
-- Added a `MiningVaultHarness` in tests for storage-layout-independent cap-boundary setup.
-- Added fuzz coverage for elapsed-time clamp and formula agreement under bounded elapsed values.
+- `test/MiningProtocol.t.sol` keeps reward/security invariant coverage for MiningPass + MiningEngine + MiningVault + MountainToken.
+- Added exhausted-cap boundary checks (including zero-elapsed exhausted-cap release path).
+- Replaced brittle storage-slot assumptions with `stdstore` setter for `totalEmitted`.
+- Added `test/DeploymentFactory.t.sol` for deterministic deployment prediction/wiring assertions and duplicate-salt deployment revert.
+
+## CI changes
+- Added GitHub Actions workflow: `.github/workflows/foundry-ci.yml`
+- CI runs:
+  - `forge fmt --check`
+  - `forge build`
+  - `forge test`
+- Triggers:
+  - `pull_request`
+  - `push` to `main`
 
 ## Notes
 - Runtime pass/fail counts cannot be produced until Foundry is available in the execution environment.

@@ -1,6 +1,6 @@
 # Mountain Mining Protocol (MMP)
 
-This repository currently contains a **security-first architecture skeleton** for a Base-native mining protocol.
+This repository contains a **security-first Base-native mining protocol core** with deterministic reward accounting and immutable deployment wiring.
 
 ## Status
 - Architecture review drafted.
@@ -8,6 +8,8 @@ This repository currently contains a **security-first architecture skeleton** fo
 - Foundry project structure created.
 - `MiningPass` custody lifecycle implemented.
 - `MiningEngine` + `MiningVault` deterministic reward path implemented with 20-year clamp and 1B cap enforcement.
+- Immutable cycle-safe deployment mechanism implemented in `ProtocolDeploymentFactory`.
+- GitHub Actions Foundry CI added (`forge fmt --check`, `forge build`, `forge test`).
 - `MiningMinter` and `MysteryBoxSale` remain intentionally unimplemented skeletons.
 
 ## Fixed targets for implementation phase
@@ -25,6 +27,7 @@ This repository currently contains a **security-first architecture skeleton** fo
   - `MiningPass.sol`
   - `MiningVault.sol`
   - `MiningEngine.sol`
+  - `ProtocolDeploymentFactory.sol`
   - `MiningMinter.sol`
   - `MysteryBoxSale.sol`
 - `interfaces/`

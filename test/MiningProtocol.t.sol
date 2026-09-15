@@ -7,42 +7,38 @@ import {MiningPass} from "../src/MiningPass.sol";
 import {MiningVault} from "../src/MiningVault.sol";
 import {MiningEngine} from "../src/MiningEngine.sol";
 import {MountainToken} from "../src/MountainToken.sol";
-
-contract MiningVaultHarness is MiningVault {
-    constructor(address miningPass_, address miningEngine_, address mountainToken_)
-        MiningVault(miningPass_, miningEngine_, mountainToken_)
-    {}
-
-    function setTotalEmittedForTest(uint256 value) external {
-        totalEmitted = value;
-    }
-}
+import {ProtocolDeploymentFactory} from "../src/ProtocolDeploymentFactory.sol";
 
 contract MiningProtocolTest is Test {
+    using stdStorage for StdStorage;
+
     uint256 internal constant MAX_EMISSION = 1_000_000_000 ether;
     uint256 internal constant MAX_MINING_DURATION = 630_720_000;
     uint256 internal constant WEIGHTED_POWER = 486_000;
     uint256 internal constant REWARD_DENOMINATOR = WEIGHTED_POWER * MAX_MINING_DURATION;
 
+    StdStorage private stdstore;
+
     MiningPass internal miningPass;
-    MiningVaultHarness internal miningVault;
+    MiningVault internal miningVault;
     MiningEngine internal miningEngine;
     MountainToken internal mountainToken;
 
-    address internal minter = address(0xC0FFEE);
+    address internal minter;
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
     address internal attacker = address(0xBAD);
 
     function setUp() external {
-        uint64 nonce = vm.getNonce(address(this));
-        address predictedToken = vm.computeCreateAddress(address(this), nonce + 2);
-        address predictedEngine = vm.computeCreateAddress(address(this), nonce + 3);
+        ProtocolDeploymentFactory factory = new ProtocolDeploymentFactory();
+        bytes32 salt = keccak256("MINING_PROTOCOL_TEST_V1");
+        ProtocolDeploymentFactory.Deployment memory deployed = factory.deployProtocol(salt);
 
-        miningPass = new MiningPass(predictedEngine, minter);
-        miningVault = new MiningVaultHarness(address(miningPass), predictedEngine, predictedToken);
-        mountainToken = new MountainToken(address(miningVault));
-        miningEngine = new MiningEngine(address(miningPass), address(miningVault));
+        miningPass = MiningPass(deployed.miningPass);
+        miningVault = MiningVault(deployed.miningVault);
+        mountainToken = MountainToken(deployed.mountainToken);
+        miningEngine = MiningEngine(deployed.miningEngine);
+        minter = deployed.miningMinter;
     }
 
     function testConstantsAndInitialSupply() external view {
@@ -215,7 +211,7 @@ contract MiningProtocolTest is Test {
         miningPass.mine(tokenId);
 
         uint256 nearCap = MAX_EMISSION - 7;
-        miningVault.setTotalEmittedForTest(nearCap);
+        _setTotalEmitted(nearCap);
 
         vm.warp(block.timestamp + MAX_MINING_DURATION);
         vm.prank(alice);
@@ -231,7 +227,7 @@ contract MiningProtocolTest is Test {
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        miningVault.setTotalEmittedForTest(MAX_EMISSION);
+        _setTotalEmitted(MAX_EMISSION);
         vm.warp(block.timestamp + MAX_MINING_DURATION);
 
         assertEq(miningEngine.pendingReward(tokenId), 0);
@@ -249,7 +245,7 @@ contract MiningProtocolTest is Test {
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        miningVault.setTotalEmittedForTest(MAX_EMISSION);
+        _setTotalEmitted(MAX_EMISSION);
         assertEq(miningEngine.pendingReward(tokenId), 0);
 
         vm.prank(alice);
@@ -363,6 +359,10 @@ contract MiningProtocolTest is Test {
     function _rewardFor(uint256 power, uint256 elapsed) internal pure returns (uint256) {
         uint256 effectiveElapsed = elapsed > MAX_MINING_DURATION ? MAX_MINING_DURATION : elapsed;
         return (power * effectiveElapsed * MAX_EMISSION) / REWARD_DENOMINATOR;
+    }
+
+    function _setTotalEmitted(uint256 value) internal {
+        stdstore.target(address(miningVault)).sig(miningVault.totalEmitted.selector).checked_write(value);
     }
 
     function _mintTo(address to, MiningPass.MiningClass classId) internal returns (uint256 tokenId) {

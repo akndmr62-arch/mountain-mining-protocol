@@ -1,48 +1,29 @@
 # SECURITY REVIEW (CURRENT STATE)
 
-This document captures the current security posture after implementing `MiningPass` custody rules and `MiningEngine`/`MiningVault` deterministic reward flow.
+## Implemented security posture
+- Reward parameters are immutable constants.
+- Class powers/caps are immutable in `MiningPass`.
+- Reward source-of-truth is `MiningVault` using `MiningPass` authoritative mining state.
+- `totalEmitted` is cap-clamped to `1_000_000_000 ether`.
+- Claim replay is blocked via per-token `sessionId` tracking.
+- `sessionId` wrap is blocked (`SessionIdOverflow`).
+- Mining custody release is `onlyMiningEngine`.
 
-## Remaining architectural conflicts
-- VRF liveness/failure policy must avoid outcome bias when fulfillment is delayed or fails.
-- Public-sale class allocation under depleted inventory requires a deterministic, bias-resistant mapping rule.
-- Constructor wiring order must avoid circular dependencies without introducing mutable trust-boundary setters.
+## Constructor-cycle hardening
+- Deployment cycle is resolved with immutable deterministic deployment:
+  - `ProtocolDeploymentFactory` (CREATE2 salt)
+  - `ImmutableProtocolDeployer` (fixed CREATE nonce order)
+- No mutable post-deploy rewiring or privileged setter is introduced.
 
-## Trust assumptions
-- Base network consensus and timestamp progression follow normal blockchain assumptions.
-- Verifiable randomness provider on Base (e.g., Chainlink VRF) is available and correct.
-- OpenZeppelin Contracts 5.x pinned exact release is used without local behavioral modification.
+## Claim lifecycle risks reviewed
+- `MiningEngine.claimAndRelease` is non-reentrant.
+- `MiningVault.claimReward` and `MiningVault.disburseReward` are non-reentrant.
+- Claim ordering is:
+  1. reserve reward from authoritative state
+  2. release NFT to authoritative miner
+  3. disburse reserved MMP to authoritative miner
+- Any revert rolls back transaction state.
 
-## Privileged operations
-- No privilege may mint arbitrary NFTs or MMP, alter class power/caps, alter mining rules, or redirect claims.
-- No privilege may withdraw vault emissions, pause users, blacklist users, or upgrade contracts.
-- Any operational sale-phase controls must be narrowly scoped and immutable where possible.
-
-## Attack surfaces
-- NFT custody start/lock/release lifecycle.
-- Claim lifecycle and emission accounting boundaries.
-- Randomness request/fulfillment path for mystery-box class assignment.
-- Phase allocation enforcement (10k airdrop / 10k early / 80k public).
-
-## Reentrancy boundaries
-- Mining start path touching custody state.
-- Claim path combining reward payout and NFT release.
-- Randomness fulfillment callbacks that can trigger mint/state transitions.
-- Any external token/NFT transfers must follow checks-effects-interactions and guarded boundaries.
-
-## Claim replay surfaces
-- Double-claim attempts against inactive positions must always revert.
-- Claim caller mismatch versus authoritative `MiningPass` miner must always revert.
-- Global emission cap clamp must prevent payout overflow under concurrent claim attempts.
-- Per-token mining `sessionId` should be tracked and marked as claimed to prevent same-session payout replay.
-
-## Randomness manipulation surfaces
-- Buyer prediction or preselection of class before randomness finalization.
-- Admin influence over mapping from random output to class.
-- Re-request/retry policy that could replace unfavorable fulfilled outcomes.
-- Inventory-edge manipulation when class caps are near exhaustion.
-
-## Deployment risks
-- Constructor dependency cycles that tempt unsafe mutable setter patterns.
-- Incorrect deployment sequence causing invalid immutable references.
-- Misconfigured VRF parameters on Base (coordinator, keyHash, subscription).
-- Incorrect initial token/vault wiring that could break hard cap enforcement assumptions.
+## Remaining non-core risks
+- `MiningMinter` and `MysteryBoxSale` are still skeletons and require separate security review when implemented.
+- VRF/public-sale randomness rules are not yet implemented.
