@@ -2,10 +2,11 @@
 pragma solidity 0.8.24;
 
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import {IERC721Receiver} from "openzeppelin-contracts/contracts/token/ERC721/IERC721Receiver.sol";
 
 /// @title MiningPass
 /// @notice ERC-721 Mining Pass with protocol custody during active mining sessions.
-contract MiningPass is ERC721 {
+contract MiningPass is ERC721, IERC721Receiver {
     error InvalidAddress();
     error UnauthorizedCaller(address caller);
     error NotTokenOwner(uint256 tokenId, address caller);
@@ -305,5 +306,10 @@ contract MiningPass is ERC721 {
         if (phase == DistributionPhase.EarlyAccess) return 10_000;
         if (phase == DistributionPhase.PublicSale) return 80_000;
         revert InvalidDistributionPhase(uint8(phase));
+    }
+
+    /// @inheritdoc IERC721Receiver
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return IERC721Receiver.onERC721Received.selector;
     }
 }

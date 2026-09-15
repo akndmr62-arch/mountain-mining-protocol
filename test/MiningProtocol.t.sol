@@ -49,6 +49,12 @@ contract MiningProtocolTest is Test {
         miningPass.mine(tokenId);
     }
 
+    function testNonexistentTokenCannotMine() external {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(MiningPass.ERC721NonexistentToken.selector, 999_999));
+        miningPass.mine(999_999);
+    }
+
     function testNonOwnerCannotStartMining() external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Steel);
 
@@ -74,6 +80,14 @@ contract MiningProtocolTest is Test {
 
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSelector(MiningPass.UnauthorizedCaller.selector, attacker));
+        miningPass.releaseFromMining(tokenId);
+    }
+
+    function testReleaseWhenInactiveReverts() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Diamond);
+
+        vm.prank(engine);
+        vm.expectRevert(abi.encodeWithSelector(MiningPass.NotMining.selector, tokenId));
         miningPass.releaseFromMining(tokenId);
     }
 
@@ -207,6 +221,49 @@ contract MiningProtocolTest is Test {
         assertEq(miningPass.miningStartedAt(tokenId), startedAt);
         assertEq(miningPass.miningOwner(tokenId), miner);
         assertEq(miningPass.ownerOf(tokenId), address(miningPass));
+    }
+
+    function testFuzz_ActiveInvariantHolds(uint8 classSeed, uint96 warpBy) external {
+        MiningPass.MiningClass classId = MiningPass.MiningClass(uint8(bound(classSeed, 0, uint8(MiningPass.MiningClass.Mithril))));
+        uint256 tokenId = _mintTo(alice, classId);
+
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+        vm.warp(block.timestamp + bound(uint256(warpBy), 1, 1800 days));
+
+        assertTrue(miningPass.isMining(tokenId));
+        assertEq(miningPass.ownerOf(tokenId), address(miningPass));
+        assertGt(miningPass.miningStartedAt(tokenId), 0);
+        assertTrue(miningPass.miningOwner(tokenId) != address(0));
+    }
+
+    function testFuzz_ReleaseResetsStateAndRestoresOwner(uint8 classSeed, uint96 warpBy) external {
+        MiningPass.MiningClass classId = MiningPass.MiningClass(uint8(bound(classSeed, 0, uint8(MiningPass.MiningClass.Mithril))));
+        uint256 tokenId = _mintTo(alice, classId);
+
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+        vm.warp(block.timestamp + bound(uint256(warpBy), 1, 1800 days));
+
+        vm.prank(engine);
+        miningPass.releaseFromMining(tokenId);
+
+        assertFalse(miningPass.isMining(tokenId));
+        assertEq(miningPass.miningStartedAt(tokenId), 0);
+        assertEq(miningPass.miningOwner(tokenId), address(0));
+        assertEq(miningPass.ownerOf(tokenId), alice);
+    }
+
+    function testFuzz_UnauthorizedCannotRelease(address caller) external {
+        vm.assume(caller != engine && caller != address(0));
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
+
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.prank(caller);
+        vm.expectRevert(abi.encodeWithSelector(MiningPass.UnauthorizedCaller.selector, caller));
+        miningPass.releaseFromMining(tokenId);
     }
 
     function _mintTo(address to, MiningPass.MiningClass classId) internal returns (uint256 tokenId) {
