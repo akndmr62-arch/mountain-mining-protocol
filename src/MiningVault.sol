@@ -4,7 +4,8 @@ pragma solidity 0.8.24;
 /// @title MiningVault
 /// @notice Skeleton only. Production logic intentionally deferred.
 contract MiningVault {
-    uint256 public constant MAX_EMISSION = 1_000_000_000 ether;
-    uint256 public constant MAX_MINING_DURATION = 630_720_000;
-    uint256 public constant TOTAL_WEIGHTED_POWER = 486_000;
+    // TODO: Hold reward reserve and compute rewards independently from MiningPass state.
+    // TODO: Enforce floor rounding and total emission cap of 1,000,000,000 MMP.
+    // TODO: Reject any engine-provided reward/power/startTime/recipient authority.
+    // TODO: Enforce active-custody verification and 20-year per-period clamp.
 }
