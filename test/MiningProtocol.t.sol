@@ -8,14 +8,14 @@ import {MiningPass} from "../src/MiningPass.sol";
 contract MiningProtocolTest is Test {
     MiningPass internal miningPass;
 
-    address internal engine = address(0xE11);
-    address internal minter = address(0xC0FFEE);
+    address internal vault = address(0xE11);
+    address internal distributor = address(0xC0FFEE);
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
     address internal attacker = address(0xBAD);
 
     function setUp() external {
-        miningPass = new MiningPass(engine, minter);
+        miningPass = new MiningPass(vault, distributor);
     }
 
     function testMintAndOwnership() external {
@@ -86,7 +86,7 @@ contract MiningProtocolTest is Test {
     function testReleaseWhenInactiveReverts() external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Diamond);
 
-        vm.prank(engine);
+        vm.prank(vault);
         vm.expectRevert(abi.encodeWithSelector(MiningPass.NotMining.selector, tokenId));
         miningPass.releaseFromMining(tokenId);
     }
@@ -97,7 +97,7 @@ contract MiningProtocolTest is Test {
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        vm.prank(engine);
+        vm.prank(vault);
         miningPass.releaseFromMining(tokenId);
 
         assertEq(miningPass.ownerOf(tokenId), alice);
@@ -112,7 +112,7 @@ contract MiningProtocolTest is Test {
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        vm.prank(engine);
+        vm.prank(vault);
         miningPass.releaseFromMining(tokenId);
 
         vm.prank(alice);
@@ -245,7 +245,7 @@ contract MiningProtocolTest is Test {
         miningPass.mine(tokenId);
         vm.warp(block.timestamp + bound(uint256(warpBy), 1, 1800 days));
 
-        vm.prank(engine);
+        vm.prank(vault);
         miningPass.releaseFromMining(tokenId);
 
         assertFalse(miningPass.isMining(tokenId));
@@ -255,7 +255,7 @@ contract MiningProtocolTest is Test {
     }
 
     function testFuzz_UnauthorizedCannotRelease(address caller) external {
-        vm.assume(caller != engine && caller != address(0));
+        vm.assume(caller != vault && caller != address(0));
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
 
         vm.prank(alice);
@@ -267,7 +267,7 @@ contract MiningProtocolTest is Test {
     }
 
     function _mintTo(address to, MiningPass.MiningClass classId) internal returns (uint256 tokenId) {
-        vm.prank(minter);
+        vm.prank(distributor);
         tokenId = miningPass.mintMiningPass(to, classId, MiningPass.DistributionPhase.PublicSale);
     }
 }

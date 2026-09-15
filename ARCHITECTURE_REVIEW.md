@@ -3,18 +3,15 @@
 ## 1) System architecture
 - `MountainToken`: fixed-supply ERC-20 (1,000,000,000 MMP, 18 decimals, no mint after initialization).
 - `MiningPass`: ERC-721 with immutable class caps, fixed powers, and canonical mining position state.
-- `MiningMinter`: bounded Merkle-based airdrop/early access claim gateway.
 - `MysteryBoxSale`: public sale and randomness request/fulfillment flow.
-- `MiningVault`: sole MMP reward reserve and reward calculator/enforcer.
-- `MiningEngine`: minimal orchestrator for lifecycle calls only.
+- `MiningVault`: sole MMP reward reserve, reward calculator/enforcer, and CLAIM orchestrator — there is no separate `MiningEngine` or `MiningMinter`; MiningVault calls MiningPass directly.
+- Airdrop/early-access `MiningPass` issuance (unrelated to MMP token economics) is authorized via `MiningPass.passDistributor`, a narrowly scoped address bound to immutable Merkle roots and per-wallet allocation bounds; it never touches MMP.
 
 ## 2) Contract responsibilities
-- `MountainToken`: mint full fixed supply once to `MiningVault` at deployment flow; no future mint path.
-- `MiningPass`: enforce total supply, per-class supply, custody lock while mining, and miner/start/power state.
-- `MiningMinter`: enforce immutable Merkle roots, one-time claim usage, per-wallet allocation bounds.
+- `MountainToken`: mint full fixed supply once to `initialHolder` at deployment; a deployment script then performs one ordinary ERC20 transfer of that full balance to `MiningVault`; no future mint path.
+- `MiningPass`: enforce total supply, per-class supply, custody lock while mining, and miner/start/power state; releases NFTs only when called by `MiningVault`.
 - `MysteryBoxSale`: accept purchase, enqueue class assignment via verifiable randomness, mint only if class cap remains.
-- `MiningVault`: compute rewards from authoritative on-chain position data and enforce emission cap.
-- `MiningEngine`: trigger start/claim flows without authority over funds, NFT recipient, or reward recipient.
+- `MiningVault`: compute rewards from authoritative on-chain MiningPass position data, enforce the emission cap, transfer MMP from its own pre-funded balance to the recorded miner, and call `MiningPass.releaseFromMining` for that same miner — all within one atomic `claimAndRelease` call. It never mints and never accepts a caller-supplied reward, power, start time, or recipient.
 
 ## 3) Trust assumptions
 - Base chain consensus and timestamp progression are honest within normal blockchain assumptions.
@@ -54,17 +51,17 @@
 - NFT moves to `MiningPass` internal custody at mining start.
 - `ownerOf(tokenId)` is `MiningPass` while active.
 - Canonical position getter returns `{miner,startTime,power,active,nonce/...}` for vault verification.
-- No approvals to `MiningEngine`; engine cannot pull NFTs.
+- No approvals to `MiningVault`; MiningVault never holds approvals and cannot pull NFTs by transferFrom — it only calls `MiningPass.releaseFromMining`, which is gated to `onlyMiningVault` and always pays out to the recorded miner.
 
 ## 10) Claim atomicity model
-- `claimAndRelease(tokenId)` flow: verify -> compute -> update state -> transfer MMP to stored miner -> release NFT to stored miner.
-- Any failure in payout or release reverts whole transaction.
-- No user-supplied recipient parameters for payout or release.
+- `claimAndRelease(tokenId)` flow, executed entirely inside `MiningVault`: verify -> compute -> update emission/state -> transfer MMP from MiningVault's own balance to stored miner -> call `MiningPass.releaseFromMining(tokenId)` to release the NFT to the stored miner.
+- Any failure in payout or release reverts the whole transaction.
+- No user-supplied recipient parameters for payout or release; both come from `MiningPass`'s authoritative stored `miner`.
 
 ## 11) Deployment dependencies
-- Avoid circular dependencies via deterministic sequencing and immutable constructor wiring.
-- Token supply destination and vault trust anchors are fixed at deployment.
-- If deterministic addresses are required, use documented CREATE2 salts and precomputed addresses.
+- The MiningVault<->MiningPass constructor dependency is resolved with a one-time, non-privileged CREATE2 deployer: precompute MiningVault's CREATE2 address, deploy MiningPass with that precomputed address wired in as its immutable `miningVault`, then deploy MiningVault via CREATE2 with MiningPass's real address as an immutable constructor argument. A post-deploy address-match check reverts the entire deployment transaction if the deployed MiningVault address does not equal the precomputed one.
+- No mutable setter, owner, or admin role is introduced to resolve this cycle.
+- Token supply destination and vault trust anchors are fixed at deployment: `MountainToken` mints the full 1,000,000,000 MMP supply once, in its constructor, to `initialHolder`; a deployment script then performs a single ordinary ERC20 `transfer` of that full balance to `MiningVault`.
 
 ## 12) Unresolved issues
 - Final VRF provider/interface selection on Base and callback gas budgeting.
