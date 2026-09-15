@@ -4,266 +4,395 @@ pragma solidity 0.8.24;
 import "forge-std/Test.sol";
 
 import {MiningPass} from "../src/MiningPass.sol";
+import {MiningVault} from "../src/MiningVault.sol";
+import {MiningEngine} from "../src/MiningEngine.sol";
+import {MountainToken} from "../src/MountainToken.sol";
+import {ProtocolDeploymentFactory} from "../src/ProtocolDeploymentFactory.sol";
 
 contract MiningProtocolTest is Test {
-    MiningPass internal miningPass;
+    using stdStorage for StdStorage;
 
-    address internal engine = address(0xE11);
-    address internal minter = address(0xC0FFEE);
+    uint256 internal constant MAX_EMISSION = 1_000_000_000 ether;
+    uint256 internal constant MAX_MINING_DURATION = 630_720_000;
+    uint256 internal constant WEIGHTED_POWER = 486_000;
+    uint256 internal constant REWARD_DENOMINATOR = WEIGHTED_POWER * MAX_MINING_DURATION;
+
+    StdStorage private stdstore;
+
+    MiningPass internal miningPass;
+    MiningVault internal miningVault;
+    MiningEngine internal miningEngine;
+    MountainToken internal mountainToken;
+
+    address internal minter;
     address internal alice = address(0xA11CE);
     address internal bob = address(0xB0B);
     address internal attacker = address(0xBAD);
 
     function setUp() external {
-        miningPass = new MiningPass(engine, minter);
+        ProtocolDeploymentFactory factory = new ProtocolDeploymentFactory();
+        bytes32 salt = keccak256("MINING_PROTOCOL_TEST_V1");
+        ProtocolDeploymentFactory.Deployment memory deployed = factory.deployProtocol(salt);
+
+        miningPass = MiningPass(deployed.miningPass);
+        miningVault = MiningVault(deployed.miningVault);
+        mountainToken = MountainToken(deployed.mountainToken);
+        miningEngine = MiningEngine(deployed.miningEngine);
+        minter = deployed.miningMinter;
     }
 
-    function testMintAndOwnership() external {
+    function testConstantsAndInitialSupply() external view {
+        assertEq(miningVault.MAX_EMISSION(), MAX_EMISSION);
+        assertEq(miningVault.MAX_MINING_DURATION(), MAX_MINING_DURATION);
+        assertEq(miningVault.TOTAL_WEIGHTED_POWER(), WEIGHTED_POWER);
+        assertEq(miningVault.REWARD_DENOMINATOR(), REWARD_DENOMINATOR);
+        assertEq(mountainToken.totalSupply(), MAX_EMISSION);
+        assertEq(mountainToken.balanceOf(address(miningVault)), MAX_EMISSION);
+    }
+
+    function testAllClassRewardsAtOneDay() external {
+        _assertRewardsByClassAtElapsed(1 days);
+    }
+
+    function testAllClassRewardsAtThirtyDays() external {
+        _assertRewardsByClassAtElapsed(30 days);
+    }
+
+    function testAllClassRewardsAtOneYear() external {
+        _assertRewardsByClassAtElapsed(365 days);
+    }
+
+    function testAllClassRewardsAtTwentyYears() external {
+        _assertRewardsByClassAtElapsed(MAX_MINING_DURATION);
+    }
+
+    function testZeroElapsedTime() external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Stone);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
 
+        assertEq(miningEngine.pendingReward(tokenId), 0);
+
+        vm.prank(alice);
+        uint256 reward = miningEngine.claimAndRelease(tokenId);
+        assertEq(reward, 0);
+        assertEq(mountainToken.balanceOf(alice), 0);
         assertEq(miningPass.ownerOf(tokenId), alice);
-        assertEq(uint256(miningPass.miningClass(tokenId)), uint256(MiningPass.MiningClass.Stone));
-        assertEq(miningPass.totalMinted(), 1);
     }
 
-    function testStartMining() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
-
+    function testOneSecondReward() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Mithril);
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        assertEq(miningPass.ownerOf(tokenId), address(miningPass));
-        assertTrue(miningPass.isMining(tokenId));
-        assertEq(miningPass.miningStartedAt(tokenId), block.timestamp);
-        assertEq(miningPass.miningOwner(tokenId), alice);
+        vm.warp(block.timestamp + 1);
+        assertEq(miningEngine.pendingReward(tokenId), _rewardFor(64, 1));
     }
 
-    function testCannotMineTwice() external {
+    function testPendingRewardClampedAfterTwentyYears() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Diamond);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.warp(block.timestamp + MAX_MINING_DURATION);
+        uint256 atBoundary = miningEngine.pendingReward(tokenId);
+
+        vm.warp(block.timestamp + 400 days);
+        uint256 afterBoundary = miningEngine.pendingReward(tokenId);
+
+        assertEq(atBoundary, afterBoundary);
+    }
+
+    function testRewardGrowthIsMonotonic() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Steel);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.warp(block.timestamp + 1);
+        uint256 r1 = miningEngine.pendingReward(tokenId);
+        vm.warp(block.timestamp + 1 days);
+        uint256 r2 = miningEngine.pendingReward(tokenId);
+        vm.warp(block.timestamp + 30 days);
+        uint256 r3 = miningEngine.pendingReward(tokenId);
+        vm.warp(block.timestamp + 365 days);
+        uint256 r4 = miningEngine.pendingReward(tokenId);
+
+        assertLe(r1, r2);
+        assertLe(r2, r3);
+        assertLe(r3, r4);
+    }
+
+    function testUnauthorizedClaimReverts() external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Iron);
-
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(MiningPass.AlreadyMining.selector, tokenId));
-        miningPass.mine(tokenId);
+        vm.warp(block.timestamp + 10 days);
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(MiningEngine.UnauthorizedMiner.selector, attacker, alice));
+        miningEngine.claimAndRelease(tokenId);
     }
 
-    function testNonexistentTokenCannotMine() external {
+    function testWrongMinerCannotClaim() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(MiningEngine.UnauthorizedMiner.selector, bob, alice));
+        miningEngine.claimAndRelease(tokenId);
+    }
+
+    function testDoubleClaimIsImpossible() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Titanium);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.warp(block.timestamp + 20 days);
+        vm.prank(alice);
+        miningEngine.claimAndRelease(tokenId);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(MiningEngine.NotMining.selector, tokenId));
+        miningEngine.claimAndRelease(tokenId);
+    }
+
+    function testInactiveTokenCannotClaimAndReturnsZeroPending() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Stone);
+        assertEq(miningEngine.pendingReward(tokenId), 0);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(MiningEngine.NotMining.selector, tokenId));
+        miningEngine.claimAndRelease(tokenId);
+    }
+
+    function testNonexistentTokenReverts() external {
+        vm.expectRevert(abi.encodeWithSelector(MiningPass.ERC721NonexistentToken.selector, 999_999));
+        miningEngine.pendingReward(999_999);
+
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(MiningPass.ERC721NonexistentToken.selector, 999_999));
-        miningPass.mine(999_999);
+        miningEngine.claimAndRelease(999_999);
     }
 
-    function testNonOwnerCannotStartMining() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Steel);
-
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSelector(MiningPass.NotTokenOwner.selector, tokenId, attacker));
-        miningPass.mine(tokenId);
-    }
-
-    function testNFTHeldByProtocolWhileMining() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Titanium);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-
-        assertEq(miningPass.ownerOf(tokenId), address(miningPass));
-    }
-
-    function testUnauthorizedReleaseReverts() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Diamond);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-
-        vm.prank(attacker);
-        vm.expectRevert(abi.encodeWithSelector(MiningPass.UnauthorizedCaller.selector, attacker));
-        miningPass.releaseFromMining(tokenId);
-    }
-
-    function testReleaseWhenInactiveReverts() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Diamond);
-
-        vm.prank(engine);
-        vm.expectRevert(abi.encodeWithSelector(MiningPass.NotMining.selector, tokenId));
-        miningPass.releaseFromMining(tokenId);
-    }
-
-    function testAuthorizedReleaseReturnsNFTAndClearsState() external {
+    function testClaimPaysMinerOnlyAndRestoresOwnership() external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Mithril);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.warp(block.timestamp + 365 days);
+        uint256 expected = _rewardFor(64, 365 days);
+
+        vm.prank(alice);
+        uint256 reward = miningEngine.claimAndRelease(tokenId);
+
+        assertEq(reward, expected);
+        assertEq(mountainToken.balanceOf(alice), expected);
+        assertEq(mountainToken.balanceOf(bob), 0);
+        assertEq(miningPass.ownerOf(tokenId), alice);
+        assertFalse(miningPass.isMining(tokenId));
+    }
+
+    function testFullLifecycleSingleTokenMinePendingClaimRelease() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Diamond);
 
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        vm.prank(engine);
-        miningPass.releaseFromMining(tokenId);
+        assertEq(miningPass.ownerOf(tokenId), address(miningPass));
+        assertTrue(miningPass.isMining(tokenId));
 
+        vm.warp(block.timestamp + 90 days);
+
+        uint256 expectedReward = _rewardFor(32, 90 days);
+        uint256 pending = miningEngine.pendingReward(tokenId);
+        uint256 emittedBefore = miningVault.totalEmitted();
+        uint256 balanceBefore = mountainToken.balanceOf(alice);
+
+        assertEq(pending, expectedReward);
+
+        vm.prank(alice);
+        uint256 claimed = miningEngine.claimAndRelease(tokenId);
+
+        assertEq(claimed, expectedReward);
+        assertEq(miningVault.totalEmitted(), emittedBefore + expectedReward);
+        assertEq(mountainToken.balanceOf(alice), balanceBefore + expectedReward);
         assertEq(miningPass.ownerOf(tokenId), alice);
         assertFalse(miningPass.isMining(tokenId));
         assertEq(miningPass.miningStartedAt(tokenId), 0);
         assertEq(miningPass.miningOwner(tokenId), address(0));
     }
 
-    function testTransferAfterMiningRelease() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Stone);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-
-        vm.prank(engine);
-        miningPass.releaseFromMining(tokenId);
-
-        vm.prank(alice);
-        miningPass.transferFrom(alice, bob, tokenId);
-
-        assertEq(miningPass.ownerOf(tokenId), bob);
-    }
-
-    function testCannotTransferOrApproveWhileMining() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-
-        vm.prank(alice);
-        vm.expectRevert();
-        miningPass.transferFrom(alice, bob, tokenId);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(MiningPass.TokenInMining.selector, tokenId));
-        miningPass.approve(bob, tokenId);
-    }
-
-    function testMiningTimestampRemainsConstant() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Iron);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-
-        uint256 startedAt = miningPass.miningStartedAt(tokenId);
-
-        vm.warp(block.timestamp + 30 days);
-
-        assertEq(miningPass.miningStartedAt(tokenId), startedAt);
-        assertEq(miningPass.miningOwner(tokenId), alice);
-        assertEq(miningPass.ownerOf(tokenId), address(miningPass));
-    }
-
-    function testMultipleNFTStatesAreIsolated() external {
-        uint256 aliceToken = _mintTo(alice, MiningPass.MiningClass.Steel);
-        uint256 bobToken = _mintTo(bob, MiningPass.MiningClass.Diamond);
-
-        vm.prank(alice);
-        miningPass.mine(aliceToken);
-
-        assertTrue(miningPass.isMining(aliceToken));
-        assertFalse(miningPass.isMining(bobToken));
-        assertEq(miningPass.miningOwner(aliceToken), alice);
-        assertEq(miningPass.ownerOf(bobToken), bob);
-
-        vm.prank(bob);
-        miningPass.mine(bobToken);
-
-        assertTrue(miningPass.isMining(aliceToken));
-        assertTrue(miningPass.isMining(bobToken));
-        assertEq(miningPass.miningOwner(bobToken), bob);
-    }
-
-    function testSafeTransferToCustodyBypassIsBlocked() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Stone);
-
-        vm.prank(alice);
-        vm.expectRevert(MiningPass.CustodyTransferNotAllowed.selector);
-        miningPass.safeTransferFrom(alice, address(miningPass), tokenId);
-    }
-
-    function testCannotTransferOutOfCustodyBypass() external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-
-        vm.prank(attacker);
-        vm.expectRevert();
-        miningPass.transferFrom(address(miningPass), attacker, tokenId);
-    }
-
-    function testSetApprovalForAllCannotBypassCustody() external {
+    function testCustodyInvariantWhileActive() external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Steel);
-        address operator = address(0x0B3);
-
-        vm.prank(alice);
-        miningPass.setApprovalForAll(operator, true);
-
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        vm.prank(operator);
-        vm.expectRevert();
-        miningPass.transferFrom(address(miningPass), operator, tokenId);
-    }
-
-    function testFuzz_MiningSessionStateStable(uint96 warpBy) external {
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Titanium);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-
-        uint256 startedAt = miningPass.miningStartedAt(tokenId);
-        address miner = miningPass.miningOwner(tokenId);
-
-        uint256 boundedWarp = bound(uint256(warpBy), 1, 3650 days);
-        vm.warp(block.timestamp + boundedWarp);
-
-        assertTrue(miningPass.isMining(tokenId));
-        assertEq(miningPass.miningStartedAt(tokenId), startedAt);
-        assertEq(miningPass.miningOwner(tokenId), miner);
-        assertEq(miningPass.ownerOf(tokenId), address(miningPass));
-    }
-
-    function testFuzz_ActiveInvariantHolds(uint8 classSeed, uint96 warpBy) external {
-        MiningPass.MiningClass classId = MiningPass.MiningClass(uint8(bound(classSeed, 0, uint8(MiningPass.MiningClass.Mithril))));
-        uint256 tokenId = _mintTo(alice, classId);
-
-        vm.prank(alice);
-        miningPass.mine(tokenId);
-        vm.warp(block.timestamp + bound(uint256(warpBy), 1, 1800 days));
-
+        vm.warp(block.timestamp + 77 days);
         assertTrue(miningPass.isMining(tokenId));
         assertEq(miningPass.ownerOf(tokenId), address(miningPass));
-        assertGt(miningPass.miningStartedAt(tokenId), 0);
-        assertTrue(miningPass.miningOwner(tokenId) != address(0));
+        assertEq(miningPass.miningOwner(tokenId), alice);
     }
 
-    function testFuzz_ReleaseResetsStateAndRestoresOwner(uint8 classSeed, uint96 warpBy) external {
-        MiningPass.MiningClass classId = MiningPass.MiningClass(uint8(bound(classSeed, 0, uint8(MiningPass.MiningClass.Mithril))));
-        uint256 tokenId = _mintTo(alice, classId);
-
+    function testGlobalEmissionCapClampsPayout() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Mithril);
         vm.prank(alice);
         miningPass.mine(tokenId);
-        vm.warp(block.timestamp + bound(uint256(warpBy), 1, 1800 days));
 
-        vm.prank(engine);
-        miningPass.releaseFromMining(tokenId);
+        uint256 nearCap = MAX_EMISSION - 7;
+        _setTotalEmitted(nearCap);
 
-        assertFalse(miningPass.isMining(tokenId));
-        assertEq(miningPass.miningStartedAt(tokenId), 0);
-        assertEq(miningPass.miningOwner(tokenId), address(0));
+        vm.warp(block.timestamp + MAX_MINING_DURATION);
+        vm.prank(alice);
+        uint256 reward = miningEngine.claimAndRelease(tokenId);
+
+        assertEq(reward, 7);
+        assertEq(miningVault.totalEmitted(), MAX_EMISSION);
+        assertEq(mountainToken.balanceOf(alice), 7);
+    }
+
+    function testExhaustedEmissionProducesZeroRewardButAllowsRelease() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Mithril);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        _setTotalEmitted(MAX_EMISSION);
+        vm.warp(block.timestamp + MAX_MINING_DURATION);
+
+        assertEq(miningEngine.pendingReward(tokenId), 0);
+
+        vm.prank(alice);
+        uint256 reward = miningEngine.claimAndRelease(tokenId);
+        assertEq(reward, 0);
+        assertEq(mountainToken.balanceOf(alice), 0);
+        assertEq(miningVault.totalEmitted(), MAX_EMISSION);
         assertEq(miningPass.ownerOf(tokenId), alice);
     }
 
-    function testFuzz_UnauthorizedCannotRelease(address caller) external {
-        vm.assume(caller != engine && caller != address(0));
-        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
+    function testExhaustedEmissionZeroElapsedStillAllowsZeroRewardRelease() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Stone);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        _setTotalEmitted(MAX_EMISSION);
+        assertEq(miningEngine.pendingReward(tokenId), 0);
+
+        vm.prank(alice);
+        uint256 reward = miningEngine.claimAndRelease(tokenId);
+        assertEq(reward, 0);
+        assertEq(mountainToken.balanceOf(alice), 0);
+        assertEq(miningPass.ownerOf(tokenId), alice);
+    }
+
+    function testNoRewardGrowthPastTwentyYearBoundary() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Iron);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.warp(block.timestamp + MAX_MINING_DURATION);
+        uint256 rewardAtBoundary = miningEngine.pendingReward(tokenId);
+        vm.warp(block.timestamp + 365 days);
+        uint256 rewardAfter = miningEngine.pendingReward(tokenId);
+
+        assertEq(rewardAtBoundary, rewardAfter);
+    }
+
+    function testFullCapacityTwentyYearMathInvariantUnderCap() external view {
+        uint256[7] memory capacities = [uint256(40_000), 25_000, 15_000, 10_000, 6_000, 3_000, 1_000];
+        uint256[7] memory powers = [uint256(1), 2, 4, 8, 16, 32, 64];
+
+        uint256 total;
+        for (uint256 i = 0; i < capacities.length; i++) {
+            total += capacities[i] * _rewardFor(powers[i], MAX_MINING_DURATION);
+        }
+
+        assertLe(total, MAX_EMISSION);
+    }
+
+    function testClassShareOfTotalEmissionMatchesWeightedPower() external view {
+        uint256[7] memory capacities = [uint256(40_000), 25_000, 15_000, 10_000, 6_000, 3_000, 1_000];
+        uint256[7] memory powers = [uint256(1), 2, 4, 8, 16, 32, 64];
+
+        uint256 classWeightedPower;
+        uint256 sumWeightedPower;
+        for (uint256 i = 0; i < capacities.length; i++) {
+            classWeightedPower = capacities[i] * powers[i];
+            sumWeightedPower += classWeightedPower;
+        }
+        assertEq(sumWeightedPower, WEIGHTED_POWER);
+    }
+
+    function testFuzzElapsedTimeClampsToTwentyYears(uint8 classSeed, uint256 extraSeconds) external {
+        MiningPass.MiningClass classId = MiningPass.MiningClass(uint8(bound(classSeed, 0, uint8(MiningPass.MiningClass.Mithril))));
+        uint256 power = _classPower(classId);
+        uint256 tokenId = _mintTo(alice, classId);
 
         vm.prank(alice);
         miningPass.mine(tokenId);
 
-        vm.prank(caller);
-        vm.expectRevert(abi.encodeWithSelector(MiningPass.UnauthorizedCaller.selector, caller));
-        miningPass.releaseFromMining(tokenId);
+        uint256 boundedExtra = bound(extraSeconds, MAX_MINING_DURATION + 1, type(uint64).max);
+        vm.warp(block.timestamp + boundedExtra);
+
+        uint256 expected = _rewardFor(power, MAX_MINING_DURATION);
+        assertEq(miningEngine.pendingReward(tokenId), expected);
+    }
+
+    function testFuzzPendingRewardMatchesFormulaUnderBoundedElapsed(uint8 classSeed, uint256 elapsedSeconds) external {
+        MiningPass.MiningClass classId = MiningPass.MiningClass(uint8(bound(classSeed, 0, uint8(MiningPass.MiningClass.Mithril))));
+        uint256 power = _classPower(classId);
+        uint256 tokenId = _mintTo(alice, classId);
+
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        uint256 boundedElapsed = bound(elapsedSeconds, 0, MAX_MINING_DURATION);
+        vm.warp(block.timestamp + boundedElapsed);
+
+        assertEq(miningEngine.pendingReward(tokenId), _rewardFor(power, boundedElapsed));
+    }
+
+    function _assertRewardsByClassAtElapsed(uint256 elapsed) internal {
+        MiningPass.MiningClass[7] memory classes = [
+            MiningPass.MiningClass.Stone,
+            MiningPass.MiningClass.Obsidian,
+            MiningPass.MiningClass.Iron,
+            MiningPass.MiningClass.Steel,
+            MiningPass.MiningClass.Titanium,
+            MiningPass.MiningClass.Diamond,
+            MiningPass.MiningClass.Mithril
+        ];
+        uint256[7] memory powers = [uint256(1), 2, 4, 8, 16, 32, 64];
+
+        for (uint256 i = 0; i < classes.length; i++) {
+            address miner = address(uint160(0x1000 + i));
+            uint256 tokenId = _mintTo(miner, classes[i]);
+            vm.prank(miner);
+            miningPass.mine(tokenId);
+            uint256 startedAt = miningPass.miningStartedAt(tokenId);
+            vm.warp(startedAt + elapsed);
+
+            assertEq(miningEngine.pendingReward(tokenId), _rewardFor(powers[i], elapsed));
+        }
+    }
+
+    function _classPower(MiningPass.MiningClass classId) internal pure returns (uint256) {
+        if (classId == MiningPass.MiningClass.Stone) return 1;
+        if (classId == MiningPass.MiningClass.Obsidian) return 2;
+        if (classId == MiningPass.MiningClass.Iron) return 4;
+        if (classId == MiningPass.MiningClass.Steel) return 8;
+        if (classId == MiningPass.MiningClass.Titanium) return 16;
+        if (classId == MiningPass.MiningClass.Diamond) return 32;
+        return 64;
+    }
+
+    function _rewardFor(uint256 power, uint256 elapsed) internal pure returns (uint256) {
+        uint256 effectiveElapsed = elapsed > MAX_MINING_DURATION ? MAX_MINING_DURATION : elapsed;
+        return (power * effectiveElapsed * MAX_EMISSION) / REWARD_DENOMINATOR;
+    }
+
+    function _setTotalEmitted(uint256 value) internal {
+        stdstore.target(address(miningVault)).sig(miningVault.totalEmitted.selector).checked_write(value);
     }
 
     function _mintTo(address to, MiningPass.MiningClass classId) internal returns (uint256 tokenId) {

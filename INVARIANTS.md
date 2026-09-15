@@ -16,12 +16,17 @@
 7. Claim payout recipient is always the authoritative stored miner (no `claim(to)`).
 8. Released NFT recipient is always the same authoritative stored miner.
 9. Reward elapsed time is clamped per period to max `630_720_000` seconds (20 years).
-10. Reward math uses floor division only; rounding dust remains unallocated.
-11. Mining signature is single-use via consumed nonce, with strict miner+tokenId binding.
-12. Signature domain mismatch (`chainId` / verifying contract) invalidates authorization.
-13. Engine never becomes authoritative for reward, power, startTime, recipient, or custody.
-14. If mining is active, `miningOwner(tokenId) != address(0)`.
-15. If mining is active, `miningStartedAt(tokenId) > 0`.
-16. If mining is inactive, `miningStartedAt(tokenId) == 0`.
-17. If mining is inactive, `miningOwner(tokenId) == address(0)`.
-18. No unauthorized account can release an actively mined NFT from custody.
+10. Class powers are fixed and authoritative from `MiningPass`: Stone=1, Obsidian=2, Iron=4, Steel=8, Titanium=16, Diamond=32, Mithril=64.
+11. Reward math uses floor division only with deterministic formula:
+   - `reward = floor(power * elapsedSeconds * 1_000_000_000 ether / (486_000 * 630_720_000))`
+   - `elapsedSeconds = min(block.timestamp - startedAt, 630_720_000)`
+   - rounding dust remains unallocated.
+12. `MiningVault` is the authoritative emission accounting layer (`totalEmitted`) and clamps each payout so `totalEmitted <= 1_000_000_000 ether`.
+13. Each mining session has a monotonically increasing `sessionId` in `MiningPass`; `MiningVault` records the last claimed session per token to prevent replay/double-claim within a session.
+14. `sessionId` cannot wrap; if a token reaches `uint64` max session count, mining start reverts.
+15. Engine never becomes authoritative for reward, power, startTime, recipient, or custody.
+16. If mining is active, `miningOwner(tokenId) != address(0)`.
+17. If mining is active, `miningStartedAt(tokenId) > 0`.
+18. If mining is inactive, `miningStartedAt(tokenId) == 0`.
+19. If mining is inactive, `miningOwner(tokenId) == address(0)`.
+20. No unauthorized account can release an actively mined NFT from custody.

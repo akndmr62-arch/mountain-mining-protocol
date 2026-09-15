@@ -1,12 +1,16 @@
 # Mountain Mining Protocol (MMP)
 
-This repository currently contains a **security-first architecture skeleton** for a Base-native mining protocol.
+This repository contains a **security-first Base-native mining protocol core** with deterministic reward accounting and immutable deployment wiring.
 
 ## Status
 - Architecture review drafted.
 - Contract/module boundaries defined.
 - Foundry project structure created.
-- **Production Solidity logic intentionally not implemented yet.**
+- `MiningPass` custody lifecycle implemented.
+- `MiningEngine` + `MiningVault` deterministic reward path implemented with 20-year clamp and 1B cap enforcement.
+- Immutable cycle-safe deployment mechanism implemented in `ProtocolDeploymentFactory`.
+- GitHub Actions Foundry CI added (`forge fmt --check`, `forge build`, `forge test`).
+- `MiningMinter` and `MysteryBoxSale` remain intentionally unimplemented skeletons.
 
 ## Fixed targets for implementation phase
 - Network: Base
@@ -23,6 +27,7 @@ This repository currently contains a **security-first architecture skeleton** fo
   - `MiningPass.sol`
   - `MiningVault.sol`
   - `MiningEngine.sol`
+  - `ProtocolDeploymentFactory.sol`
   - `MiningMinter.sol`
   - `MysteryBoxSale.sol`
 - `interfaces/`
@@ -35,5 +40,5 @@ Design for strong resistance against NFT theft, reward theft, replay, over-emiss
 ## MiningPass custody lifecycle (v1)
 - **MINE**: user-owned Mining Pass is moved into `MiningPass` contract custody and mining starts.
 - **MINING**: NFT stays custody-locked (`ownerOf(tokenId) == address(MiningPass)`) while rewards accrue passively from elapsed time.
-- **CLAIM**: `MiningEngine` computes reward, `MiningMinter` mints MMP, then `MiningPass` releases the NFT to the recorded miner.
+- **CLAIM**: caller must equal the authoritative stored miner; `MiningEngine` checks this, `MiningVault` reserves deterministic reward from authoritative state, `MiningPass` releases the NFT to the same stored miner, then `MiningVault` pays the reserved reward to that same stored miner.
 - **POST-RELEASE**: NFT is transferable/approvable as a normal ERC-721 again.

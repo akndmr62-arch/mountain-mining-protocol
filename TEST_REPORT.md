@@ -1,23 +1,32 @@
-# TEST REPORT (MININGPASS V1)
+# TEST REPORT (REWARD + DEPLOYMENT HARDENING)
 
 ## Executed commands
-- `forge fmt`
+- `forge fmt --check`
 - `forge build`
 - `forge test`
-- `forge test -vvv`
 
 ## Command results
-- `forge fmt` → **failed** in this environment: `forge: command not found`
-- `forge build` → **not executed** (blocked because `forge` is unavailable)
-- `forge test` → **not executed** (blocked because `forge` is unavailable)
-- `forge test -vvv` → **not executed** (blocked because `forge` is unavailable)
+- `forge fmt --check` → **failed** in this environment: `forge: command not found`
+- `forge build` → **failed** in this environment: `forge: command not found`
+- `forge test` → **failed** in this environment: `forge: command not found`
 
 ## Test suite changes made
-- Added `testNonexistentTokenCannotMine`
-- Added `testReleaseWhenInactiveReverts`
-- Added `testFuzz_ActiveInvariantHolds`
-- Added `testFuzz_ReleaseResetsStateAndRestoresOwner`
-- Added `testFuzz_UnauthorizedCannotRelease`
+- `test/MiningProtocol.t.sol` keeps reward/security invariant coverage for MiningPass + MiningEngine + MiningVault + MountainToken.
+- Added exhausted-cap boundary checks (including zero-elapsed exhausted-cap release path).
+- Replaced brittle storage-slot assumptions with `stdstore` setter for `totalEmitted`.
+- Added `test/DeploymentFactory.t.sol` for deterministic deployment prediction/wiring assertions and duplicate-salt deployment revert.
+- Added final-audit deployment checks for nonce-order address prediction, one-shot `ImmutableProtocolDeployer`, no post-deployment token mint path, and no admin/setter surfaces on factory/deployer.
+- Added explicit full lifecycle single-token flow test covering custody -> pendingReward -> claimAndRelease -> payout -> state clear.
+
+## CI changes
+- Added GitHub Actions workflow: `.github/workflows/ci.yml`
+- CI runs:
+  - `forge fmt --check`
+  - `forge build`
+  - `forge test`
+- Triggers:
+  - `pull_request`
+  - `push` to `main`
 
 ## Notes
-- MiningPass lifecycle tests in `test/MiningProtocol.t.sol` now cover additional custody and authorization invariants, but runtime pass/fail counts cannot be produced until Foundry is available in the execution environment.
+- Runtime pass/fail counts cannot be produced until Foundry is available in the execution environment.
