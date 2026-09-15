@@ -165,6 +165,32 @@ contract MiningProtocolTest is Test {
         miningPass.safeTransferFrom(alice, address(miningPass), tokenId);
     }
 
+    function testCannotTransferOutOfCustodyBypass() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Obsidian);
+
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        miningPass.transferFrom(address(miningPass), attacker, tokenId);
+    }
+
+    function testSetApprovalForAllCannotBypassCustody() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Steel);
+        address operator = address(0x0B3);
+
+        vm.prank(alice);
+        miningPass.setApprovalForAll(operator, true);
+
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        vm.prank(operator);
+        vm.expectRevert();
+        miningPass.transferFrom(address(miningPass), operator, tokenId);
+    }
+
     function testFuzz_MiningSessionStateStable(uint96 warpBy) external {
         uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Titanium);
 
