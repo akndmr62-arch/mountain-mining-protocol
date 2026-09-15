@@ -52,8 +52,8 @@ contract MiningPass is ERC721, IERC721Receiver {
 
     uint256 public constant MAX_TOTAL_SUPPLY = 100_000;
 
-    address public immutable miningEngine;
-    address public immutable miningMinter;
+    address public immutable miningVault;
+    address public immutable passDistributor;
 
     uint256 private _nextTokenId;
     bool private _lifecycleTransfer;
@@ -66,24 +66,24 @@ contract MiningPass is ERC721, IERC721Receiver {
     event MiningStarted(uint256 indexed tokenId, address indexed miner, uint256 timestamp);
     event MiningStopped(uint256 indexed tokenId, address indexed miner, uint256 timestamp);
 
-    constructor(address miningEngine_, address miningMinter_) ERC721("Mountain Mining Pass", "MMPASS") {
-        if (miningEngine_ == address(0) || miningMinter_ == address(0)) {
+    constructor(address miningVault_, address passDistributor_) ERC721("Mountain Mining Pass", "MMPASS") {
+        if (miningVault_ == address(0) || passDistributor_ == address(0)) {
             revert InvalidAddress();
         }
 
-        miningEngine = miningEngine_;
-        miningMinter = miningMinter_;
+        miningVault = miningVault_;
+        passDistributor = passDistributor_;
     }
 
-    modifier onlyMiningEngine() {
-        if (msg.sender != miningEngine) {
+    modifier onlyMiningVault() {
+        if (msg.sender != miningVault) {
             revert UnauthorizedCaller(msg.sender);
         }
         _;
     }
 
-    modifier onlyMiningMinter() {
-        if (msg.sender != miningMinter) {
+    modifier onlyPassDistributor() {
+        if (msg.sender != passDistributor) {
             revert UnauthorizedCaller(msg.sender);
         }
         _;
@@ -92,7 +92,7 @@ contract MiningPass is ERC721, IERC721Receiver {
     /// @notice Mints a new Mining Pass under bounded class and phase allocations.
     function mintMiningPass(address to, MiningClass classId, DistributionPhase phase)
         external
-        onlyMiningMinter
+        onlyPassDistributor
         returns (uint256 tokenId)
     {
         if (to == address(0)) {
@@ -158,7 +158,10 @@ contract MiningPass is ERC721, IERC721Receiver {
     }
 
     /// @notice Releases a mining NFT back to its recorded miner and clears active mining state.
-    function releaseFromMining(uint256 tokenId) external onlyMiningEngine {
+    /// @dev Callable only by `miningVault`, which invokes this atomically after computing and
+    /// transferring the MMP reward as part of `claimAndRelease`. The recipient is always the
+    /// recorded `state.miner`; no caller-supplied recipient is ever accepted.
+    function releaseFromMining(uint256 tokenId) external onlyMiningVault {
         MiningState storage state = _miningStates[tokenId];
         if (!state.active) {
             revert NotMining(tokenId);
@@ -210,7 +213,7 @@ contract MiningPass is ERC721, IERC721Receiver {
         return _classPower(_tokenClass[tokenId]);
     }
 
-    /// @notice Returns consolidated mining data for vault/engine reads.
+    /// @notice Returns consolidated mining data for vault reads.
     function getMiningPosition(uint256 tokenId) external view returns (MiningPosition memory) {
         _requireMinted(tokenId);
         MiningClass classId = _tokenClass[tokenId];
