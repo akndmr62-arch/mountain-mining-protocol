@@ -45,7 +45,7 @@ contract MiningProtocolTest is Test {
         miningPass.mine(tokenId);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(MiningPass.NotTokenOwner.selector, tokenId, alice));
+        vm.expectRevert(abi.encodeWithSelector(MiningPass.AlreadyMining.selector, tokenId));
         miningPass.mine(tokenId);
     }
 

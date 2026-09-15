@@ -131,17 +131,18 @@ contract MiningPass is ERC721 {
 
     /// @notice Starts mining by moving the NFT into protocol custody and recording the session start timestamp.
     function mine(uint256 tokenId) external {
-        address currentOwner = _ownerOf(tokenId);
-        if (currentOwner == address(0)) {
+        if (_ownerOf(tokenId) == address(0)) {
             revert ERC721NonexistentToken(tokenId);
-        }
-        if (currentOwner != msg.sender) {
-            revert NotTokenOwner(tokenId, msg.sender);
         }
 
         MiningState storage state = _miningStates[tokenId];
         if (state.active) {
             revert AlreadyMining(tokenId);
+        }
+
+        address currentOwner = _ownerOf(tokenId);
+        if (currentOwner != msg.sender) {
+            revert NotTokenOwner(tokenId, msg.sender);
         }
 
         state.active = true;
