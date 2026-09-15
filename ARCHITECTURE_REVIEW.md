@@ -15,6 +15,7 @@
 - `MysteryBoxSale`: accept purchase, enqueue class assignment via verifiable randomness, mint only if class cap remains.
 - `MiningVault`: computes rewards from authoritative `MiningPass` position data, clamps elapsed time to 20 years, and enforces global emission cap.
 - `MiningEngine`: deterministic calculator/orchestrator; validates caller is stored miner, calls vault payout, then releases NFT via `MiningPass`.
+- `MiningPass` mining position includes a monotonic per-token `sessionId`; `MiningVault` marks claimed session IDs to harden session replay protection.
 
 ## 3) Trust assumptions
 - Base chain consensus and timestamp progression are honest within normal blockchain assumptions.
@@ -57,7 +58,7 @@
 - No approvals to `MiningEngine`; engine cannot pull NFTs.
 
 ## 10) Claim atomicity model
-- `claimAndRelease(tokenId)` flow: verify active position/miner -> vault computes reward and transfers MMP to stored miner -> release NFT to stored miner.
+- `claimAndRelease(tokenId)` flow: verify active position/miner -> vault computes and reserves reward -> release NFT to stored miner -> vault transfers reserved MMP to stored miner.
 - Any failure in payout or release reverts whole transaction.
 - No user-supplied recipient parameters for payout or release.
 

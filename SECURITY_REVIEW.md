@@ -33,6 +33,7 @@ This document captures the current security posture after implementing `MiningPa
 - Double-claim attempts against inactive positions must always revert.
 - Claim caller mismatch versus authoritative `MiningPass` miner must always revert.
 - Global emission cap clamp must prevent payout overflow under concurrent claim attempts.
+- Per-token mining `sessionId` should be tracked and marked as claimed to prevent same-session payout replay.
 
 ## Randomness manipulation surfaces
 - Buyer prediction or preselection of class before randomness finalization.

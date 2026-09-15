@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 import {IMiningPass} from "../interfaces/IMiningPass.sol";
 
 interface IMiningVault {
-    function MAX_EMISSION() external view returns (uint256);
-    function MAX_MINING_DURATION() external view returns (uint256);
-    function REWARD_DENOMINATOR() external view returns (uint256);
-    function totalEmitted() external view returns (uint256);
     function pendingReward(uint256 tokenId) external view returns (uint256);
     function claimReward(uint256 tokenId, address caller) external returns (uint256 reward, address miner);
+    function disburseReward(uint256 tokenId) external;
 }
 
 /// @title MiningEngine
@@ -37,27 +33,7 @@ contract MiningEngine is ReentrancyGuard {
 
     /// @notice Deterministic pending reward using the global emission constant and MiningPass power.
     function pendingReward(uint256 tokenId) public view returns (uint256) {
-        IMiningPass.MiningPosition memory position = miningPass.getMiningPosition(tokenId);
-        if (!position.active || position.miner == address(0)) {
-            return 0;
-        }
-
-        uint256 elapsed = block.timestamp - uint256(position.startedAt);
-        uint256 maxDuration = miningVault.MAX_MINING_DURATION();
-        if (elapsed > maxDuration) {
-            elapsed = maxDuration;
-        }
-
-        uint256 reward = Math.mulDiv(
-            uint256(position.power) * elapsed,
-            miningVault.MAX_EMISSION(),
-            miningVault.REWARD_DENOMINATOR()
-        );
-        uint256 remaining = miningVault.MAX_EMISSION() - miningVault.totalEmitted();
-        if (reward > remaining) {
-            return remaining;
-        }
-        return reward;
+        return miningVault.pendingReward(tokenId);
     }
 
     /// @notice Claims reward and releases the NFT back to the authoritative miner atomically.
@@ -72,6 +48,7 @@ contract MiningEngine is ReentrancyGuard {
 
         (reward,) = miningVault.claimReward(tokenId, msg.sender);
         miningPass.releaseFromMining(tokenId);
+        miningVault.disburseReward(tokenId);
 
         emit ClaimAndRelease(tokenId, msg.sender, reward);
     }

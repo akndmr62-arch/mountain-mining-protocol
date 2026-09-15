@@ -37,5 +37,5 @@ Design for strong resistance against NFT theft, reward theft, replay, over-emiss
 ## MiningPass custody lifecycle (v1)
 - **MINE**: user-owned Mining Pass is moved into `MiningPass` contract custody and mining starts.
 - **MINING**: NFT stays custody-locked (`ownerOf(tokenId) == address(MiningPass)`) while rewards accrue passively from elapsed time.
-- **CLAIM**: `MiningEngine` reads authoritative position state, `MiningVault` computes and transfers reward to stored miner with floor rounding and global cap clamp, then `MiningPass` releases the NFT to the same stored miner.
+- **CLAIM**: caller must equal the authoritative stored miner; `MiningEngine` checks this, `MiningVault` reserves deterministic reward from authoritative state, `MiningPass` releases the NFT to the same stored miner, then `MiningVault` pays the reserved reward to that same stored miner.
 - **POST-RELEASE**: NFT is transferable/approvable as a normal ERC-721 again.

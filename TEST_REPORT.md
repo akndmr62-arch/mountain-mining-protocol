@@ -19,6 +19,7 @@
 - Added authorization checks for unauthorized/wrong-miner claim attempts and double-claim prevention.
 - Added custody lifecycle checks (active custody invariant and post-claim ownership restoration).
 - Added cap/invariant checks for global emission clamp and full-capacity 20-year aggregate emission bound.
+- Added a `MiningVaultHarness` in tests for storage-layout-independent cap-boundary setup.
 - Added fuzz coverage for elapsed-time clamp and formula agreement under bounded elapsed values.
 
 ## Notes

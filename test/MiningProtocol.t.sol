@@ -8,6 +8,16 @@ import {MiningVault} from "../src/MiningVault.sol";
 import {MiningEngine} from "../src/MiningEngine.sol";
 import {MountainToken} from "../src/MountainToken.sol";
 
+contract MiningVaultHarness is MiningVault {
+    constructor(address miningPass_, address miningEngine_, address mountainToken_)
+        MiningVault(miningPass_, miningEngine_, mountainToken_)
+    {}
+
+    function setTotalEmittedForTest(uint256 value) external {
+        totalEmitted = value;
+    }
+}
+
 contract MiningProtocolTest is Test {
     uint256 internal constant MAX_EMISSION = 1_000_000_000 ether;
     uint256 internal constant MAX_MINING_DURATION = 630_720_000;
@@ -15,7 +25,7 @@ contract MiningProtocolTest is Test {
     uint256 internal constant REWARD_DENOMINATOR = WEIGHTED_POWER * MAX_MINING_DURATION;
 
     MiningPass internal miningPass;
-    MiningVault internal miningVault;
+    MiningVaultHarness internal miningVault;
     MiningEngine internal miningEngine;
     MountainToken internal mountainToken;
 
@@ -26,12 +36,11 @@ contract MiningProtocolTest is Test {
 
     function setUp() external {
         uint64 nonce = vm.getNonce(address(this));
-        address predictedVault = vm.computeCreateAddress(address(this), nonce + 1);
         address predictedToken = vm.computeCreateAddress(address(this), nonce + 2);
         address predictedEngine = vm.computeCreateAddress(address(this), nonce + 3);
 
         miningPass = new MiningPass(predictedEngine, minter);
-        miningVault = new MiningVault(address(miningPass), predictedEngine, predictedToken);
+        miningVault = new MiningVaultHarness(address(miningPass), predictedEngine, predictedToken);
         mountainToken = new MountainToken(address(miningVault));
         miningEngine = new MiningEngine(address(miningPass), address(miningVault));
     }
@@ -206,7 +215,7 @@ contract MiningProtocolTest is Test {
         miningPass.mine(tokenId);
 
         uint256 nearCap = MAX_EMISSION - 7;
-        vm.store(address(miningVault), bytes32(uint256(0)), bytes32(nearCap));
+        miningVault.setTotalEmittedForTest(nearCap);
 
         vm.warp(block.timestamp + MAX_MINING_DURATION);
         vm.prank(alice);
@@ -215,6 +224,39 @@ contract MiningProtocolTest is Test {
         assertEq(reward, 7);
         assertEq(miningVault.totalEmitted(), MAX_EMISSION);
         assertEq(mountainToken.balanceOf(alice), 7);
+    }
+
+    function testExhaustedEmissionProducesZeroRewardButAllowsRelease() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Mithril);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        miningVault.setTotalEmittedForTest(MAX_EMISSION);
+        vm.warp(block.timestamp + MAX_MINING_DURATION);
+
+        assertEq(miningEngine.pendingReward(tokenId), 0);
+
+        vm.prank(alice);
+        uint256 reward = miningEngine.claimAndRelease(tokenId);
+        assertEq(reward, 0);
+        assertEq(mountainToken.balanceOf(alice), 0);
+        assertEq(miningVault.totalEmitted(), MAX_EMISSION);
+        assertEq(miningPass.ownerOf(tokenId), alice);
+    }
+
+    function testExhaustedEmissionZeroElapsedStillAllowsZeroRewardRelease() external {
+        uint256 tokenId = _mintTo(alice, MiningPass.MiningClass.Stone);
+        vm.prank(alice);
+        miningPass.mine(tokenId);
+
+        miningVault.setTotalEmittedForTest(MAX_EMISSION);
+        assertEq(miningEngine.pendingReward(tokenId), 0);
+
+        vm.prank(alice);
+        uint256 reward = miningEngine.claimAndRelease(tokenId);
+        assertEq(reward, 0);
+        assertEq(mountainToken.balanceOf(alice), 0);
+        assertEq(miningPass.ownerOf(tokenId), alice);
     }
 
     function testNoRewardGrowthPastTwentyYearBoundary() external {
@@ -301,7 +343,8 @@ contract MiningProtocolTest is Test {
             uint256 tokenId = _mintTo(miner, classes[i]);
             vm.prank(miner);
             miningPass.mine(tokenId);
-            vm.warp(block.timestamp + elapsed);
+            uint256 startedAt = miningPass.miningStartedAt(tokenId);
+            vm.warp(startedAt + elapsed);
 
             assertEq(miningEngine.pendingReward(tokenId), _rewardFor(powers[i], elapsed));
         }

@@ -22,9 +22,11 @@
    - `elapsedSeconds = min(block.timestamp - startedAt, 630_720_000)`
    - rounding dust remains unallocated.
 12. `MiningVault` is the authoritative emission accounting layer (`totalEmitted`) and clamps each payout so `totalEmitted <= 1_000_000_000 ether`.
-13. Engine never becomes authoritative for reward, power, startTime, recipient, or custody.
-14. If mining is active, `miningOwner(tokenId) != address(0)`.
-15. If mining is active, `miningStartedAt(tokenId) > 0`.
-16. If mining is inactive, `miningStartedAt(tokenId) == 0`.
-17. If mining is inactive, `miningOwner(tokenId) == address(0)`.
-18. No unauthorized account can release an actively mined NFT from custody.
+13. Each mining session has a monotonically increasing `sessionId` in `MiningPass`; `MiningVault` records the last claimed session per token to prevent replay/double-claim within a session.
+14. `sessionId` cannot wrap; if a token reaches `uint64` max session count, mining start reverts.
+15. Engine never becomes authoritative for reward, power, startTime, recipient, or custody.
+16. If mining is active, `miningOwner(tokenId) != address(0)`.
+17. If mining is active, `miningStartedAt(tokenId) > 0`.
+18. If mining is inactive, `miningStartedAt(tokenId) == 0`.
+19. If mining is inactive, `miningOwner(tokenId) == address(0)`.
+20. No unauthorized account can release an actively mined NFT from custody.

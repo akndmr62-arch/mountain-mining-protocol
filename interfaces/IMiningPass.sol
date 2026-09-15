@@ -18,6 +18,7 @@ interface IMiningPass {
         bool active;
         MiningClass classId;
         uint64 power;
+        uint64 sessionId;
     }
 
     function mine(uint256 tokenId) external;

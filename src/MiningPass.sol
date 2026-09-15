@@ -19,6 +19,7 @@ contract MiningPass is ERC721, IERC721Receiver {
     error PhaseAllocationExceeded(uint8 phaseId);
     error CustodyTransferNotAllowed();
     error TokenInMining(uint256 tokenId);
+    error SessionIdOverflow(uint256 tokenId);
 
     enum MiningClass {
         Stone,
@@ -40,6 +41,7 @@ contract MiningPass is ERC721, IERC721Receiver {
         address miner;
         uint64 startedAt;
         bool active;
+        uint64 sessionId;
     }
 
     struct MiningPosition {
@@ -48,6 +50,7 @@ contract MiningPass is ERC721, IERC721Receiver {
         bool active;
         MiningClass classId;
         uint64 power;
+        uint64 sessionId;
     }
 
     uint256 public constant MAX_TOTAL_SUPPLY = 100_000;
@@ -149,6 +152,10 @@ contract MiningPass is ERC721, IERC721Receiver {
         state.active = true;
         state.startedAt = uint64(block.timestamp);
         state.miner = msg.sender;
+        if (state.sessionId == type(uint64).max) {
+            revert SessionIdOverflow(tokenId);
+        }
+        state.sessionId++;
 
         _lifecycleTransfer = true;
         _transfer(msg.sender, address(this), tokenId);
@@ -221,7 +228,8 @@ contract MiningPass is ERC721, IERC721Receiver {
             startedAt: state.startedAt,
             active: state.active,
             classId: classId,
-            power: _classPower(classId)
+            power: _classPower(classId),
+            sessionId: state.sessionId
         });
     }
 
