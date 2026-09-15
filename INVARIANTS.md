@@ -16,9 +16,12 @@
 7. Claim payout recipient is always the authoritative stored miner (no `claim(to)`).
 8. Released NFT recipient is always the same authoritative stored miner.
 9. Reward elapsed time is clamped per period to max `630_720_000` seconds (20 years).
-10. Reward math uses floor division only; rounding dust remains unallocated.
-11. Mining signature is single-use via consumed nonce, with strict miner+tokenId binding.
-12. Signature domain mismatch (`chainId` / verifying contract) invalidates authorization.
+10. Class powers are fixed and authoritative from `MiningPass`: Stone=1, Obsidian=2, Iron=4, Steel=8, Titanium=16, Diamond=32, Mithril=64.
+11. Reward math uses floor division only with deterministic formula:
+   - `reward = floor(power * elapsedSeconds * 1_000_000_000 ether / (486_000 * 630_720_000))`
+   - `elapsedSeconds = min(block.timestamp - startedAt, 630_720_000)`
+   - rounding dust remains unallocated.
+12. `MiningVault` is the authoritative emission accounting layer (`totalEmitted`) and clamps each payout so `totalEmitted <= 1_000_000_000 ether`.
 13. Engine never becomes authoritative for reward, power, startTime, recipient, or custody.
 14. If mining is active, `miningOwner(tokenId) != address(0)`.
 15. If mining is active, `miningStartedAt(tokenId) > 0`.

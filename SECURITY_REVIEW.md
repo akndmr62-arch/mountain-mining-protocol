@@ -1,6 +1,6 @@
-# SECURITY REVIEW (PRE-IMPLEMENTATION)
+# SECURITY REVIEW (CURRENT STATE)
 
-This document captures required architecture findings **before** production Solidity implementation.
+This document captures the current security posture after implementing `MiningPass` custody rules and `MiningEngine`/`MiningVault` deterministic reward flow.
 
 ## Remaining architectural conflicts
 - VRF liveness/failure policy must avoid outcome bias when fulfillment is delayed or fails.
@@ -18,7 +18,6 @@ This document captures required architecture findings **before** production Soli
 - Any operational sale-phase controls must be narrowly scoped and immutable where possible.
 
 ## Attack surfaces
-- EIP-712 start-mining authorization (EOA + ERC-1271 paths).
 - NFT custody start/lock/release lifecycle.
 - Claim lifecycle and emission accounting boundaries.
 - Randomness request/fulfillment path for mystery-box class assignment.
@@ -30,11 +29,10 @@ This document captures required architecture findings **before** production Soli
 - Randomness fulfillment callbacks that can trigger mint/state transitions.
 - Any external token/NFT transfers must follow checks-effects-interactions and guarded boundaries.
 
-## Signature replay surfaces
-- Cross-chain or cross-contract replay if domain separation is incomplete.
-- Nonce replay if nonce is not consumed atomically on successful authorization.
-- Miner/token mismatch replay if signature payload omits strict `miner` and `tokenId` binding.
-- Deadline bypass if expired signatures are not rejected.
+## Claim replay surfaces
+- Double-claim attempts against inactive positions must always revert.
+- Claim caller mismatch versus authoritative `MiningPass` miner must always revert.
+- Global emission cap clamp must prevent payout overflow under concurrent claim attempts.
 
 ## Randomness manipulation surfaces
 - Buyer prediction or preselection of class before randomness finalization.
