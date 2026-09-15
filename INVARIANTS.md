@@ -20,3 +20,7 @@
 11. Mining signature is single-use via consumed nonce, with strict miner+tokenId binding.
 12. Signature domain mismatch (`chainId` / verifying contract) invalidates authorization.
 13. Engine never becomes authoritative for reward, power, startTime, recipient, or custody.
+14. If mining is active, `miningOwner(tokenId) != address(0)`.
+15. If mining is active, `miningStartedAt(tokenId) > 0`.
+16. If mining is inactive, `miningStartedAt(tokenId) == 0`.
+17. No unauthorized account can release an actively mined NFT from custody.

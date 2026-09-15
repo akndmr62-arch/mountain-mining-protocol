@@ -31,3 +31,9 @@ This repository currently contains a **security-first architecture skeleton** fo
 
 ## Security posture goal
 Design for strong resistance against NFT theft, reward theft, replay, over-emission, reentrancy, randomness manipulation, and unauthorized state transitions.
+
+## MiningPass custody lifecycle (v1)
+- **MINE**: user-owned Mining Pass is moved into `MiningPass` contract custody and mining starts.
+- **MINING**: NFT stays custody-locked (`ownerOf(tokenId) == address(MiningPass)`) while rewards accrue passively from elapsed time.
+- **CLAIM**: `MiningEngine` computes reward, `MiningMinter` mints MMP, then `MiningPass` releases the NFT to the recorded miner.
+- **POST-RELEASE**: NFT is transferable/approvable as a normal ERC-721 again.
