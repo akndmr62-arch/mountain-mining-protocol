@@ -23,4 +23,5 @@
 14. If mining is active, `miningOwner(tokenId) != address(0)`.
 15. If mining is active, `miningStartedAt(tokenId) > 0`.
 16. If mining is inactive, `miningStartedAt(tokenId) == 0`.
-17. No unauthorized account can release an actively mined NFT from custody.
+17. If mining is inactive, `miningOwner(tokenId) == address(0)`.
+18. No unauthorized account can release an actively mined NFT from custody.
